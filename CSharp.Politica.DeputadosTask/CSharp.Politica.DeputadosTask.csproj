@@ -70,7 +70,7 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\CSharp.Data.Client\CSharp.Data.Client\CSharp.Data.Client.csproj">
+    <ProjectReference Include="$(SolutionDir)\CSharp.Data.Client\CSharp.Data.Client\CSharp.Data.Client.csproj">
       <Project>{679caed8-ee91-4117-a573-31171c4e652a}</Project>
       <Name>CSharp.Data.Client</Name>
     </ProjectReference>
