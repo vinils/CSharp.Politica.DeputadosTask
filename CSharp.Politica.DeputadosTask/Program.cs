@@ -35,16 +35,7 @@ namespace CSharp.Politica.DeputadosTask
         public DateTime Date { get; set; }
         public DictionaryTree<string, string> Group { get; set; }
         public decimal Value { get; set; }
-    }
-
-    public class body
-    {
-        public GroupNameTree Groups { get; set; }
-    }
-
-    public class body2
-    {
-        public List<Data.Models.Exam> Exams { get; set; }
+        public string Parcela { get; set; }
     }
 
     class Program
@@ -159,10 +150,10 @@ namespace CSharp.Politica.DeputadosTask
         private static void GetData(int year, int month, out List<ExamDeputado> exams, out DictionaryTree<string, string> groups, Func<string, string> treatIndex)
         {
             exams = new List<ExamDeputado>();
-            groups = new DictionaryTree<string, string>(s => treatIndex(s), "Política");
+            groups = new DictionaryTree<string, string>(s => treatIndex(s), "Verba indenizatória");
 
             var xmlDoc = new System.Xml.XmlDocument();
-            xmlDoc.Load(@"C:\Users\MyUser\source\repos\CSharp.Politica.DeputadosTask\CSharp.Politica.DeputadosTask\Dados.xml");
+            xmlDoc.Load(@"C:\Users\MyUser\source\repos\CSharp.Data.Task\CSharp.Politica.DeputadosTask\CSharp.Politica.DeputadosTask\Dados.xml");
 
             var xpath = "xml/dados/despesa";
             var nodes = xmlDoc.SelectNodes(xpath);
@@ -174,7 +165,7 @@ namespace CSharp.Politica.DeputadosTask
                     GroupBulkInsertByName(groups);
                     ExamBulkInsert(exams, treatIndex);
                     exams = new List<ExamDeputado>();
-                    groups = new DictionaryTree<string, string>(s => treatIndex(s), "Política");
+                    groups = new DictionaryTree<string, string>(s => treatIndex(s), "Verba indenizatória");
                 }
 
                 var dataEmissaoText = childrenNode.SelectSingleNode("dataEmissao").InnerText;
@@ -182,9 +173,9 @@ namespace CSharp.Politica.DeputadosTask
                 var ano = int.Parse(childrenNode.SelectSingleNode("ano").InnerText);
                 var mes = int.Parse(childrenNode.SelectSingleNode("mes").InnerText);
                 var vlLiquidoText = childrenNode.SelectSingleNode("valorLiquido").InnerText;
-                var vlLiquido = string.IsNullOrWhiteSpace(vlLiquidoText) ? (decimal?)null : decimal.Parse(vlLiquidoText);
+                var vlLiquido = string.IsNullOrWhiteSpace(vlLiquidoText) ? (decimal?)null : decimal.Parse(vlLiquidoText, System.Globalization.CultureInfo.InvariantCulture);
                 var vlDevolvidoText = childrenNode.SelectSingleNode("restituicao").InnerText;
-                var vlDevolvido = string.IsNullOrWhiteSpace(vlDevolvidoText) ? (decimal?)null : decimal.Parse(vlDevolvidoText);
+                var vlDevolvido = string.IsNullOrWhiteSpace(vlDevolvidoText) ? (decimal?)null : decimal.Parse(vlDevolvidoText, System.Globalization.CultureInfo.InvariantCulture) * -1;
                 var isCancelado = vlDevolvido.HasValue;
                 //valorLiquido ?? restituicao * -1
 
@@ -215,23 +206,21 @@ namespace CSharp.Politica.DeputadosTask
                 var numeroDocumento = tpDocumento + childrenNode.SelectSingleNode("numero").InnerText;
 
                 var group = groups.AddIfNew(
-                    "Deputados",
-                    "Verba indenizatória",
-                    childrenNode.SelectSingleNode("codigoLegislatura").InnerText.Trim(),
-                    childrenNode.SelectSingleNode("siglaPartido").InnerText,
                     childrenNode.SelectSingleNode("siglaUF").InnerText,
+                    childrenNode.SelectSingleNode("siglaPartido").InnerText,
                     childrenNode.SelectSingleNode("nomeParlamentar").InnerText,
+                    childrenNode.SelectSingleNode("codigoLegislatura").InnerText.Trim(),
                     childrenNode.SelectSingleNode("descricao").InnerText,
                     childrenNode.SelectSingleNode("fornecedor").InnerText,
                     numeroDocumento,
-                    childrenNode.SelectSingleNode("parcela").InnerText,
                     isCancelado ? "Cancelado" : "Reembolsado");
 
                 var exam = new ExamDeputado()
                 {
-                    Date = dataEmissao.HasValue ? dataEmissao.Value : new DateTime(ano, mes, 1),
+                    Date = dataEmissao ?? new DateTime(ano, mes, 1),
                     Group = group,
-                    Value = isCancelado ? vlDevolvido.Value * -1 : vlLiquido.Value
+                    Value = isCancelado ? vlDevolvido.Value * -1 : vlLiquido.Value,
+                    Parcela = childrenNode.SelectSingleNode("parcela").InnerText
                 };
 
                 exams.Add(exam);
@@ -262,16 +251,19 @@ namespace CSharp.Politica.DeputadosTask
             if (!groups.Any())
                 return;
 
-            var body = new body() { Groups = (GroupNameTree)groups };
-            var json = Newtonsoft.Json.JsonConvert.SerializeObject(body);
-            var client = new RestClient("http://localhost:58994/odata/v4/groups/BulkInsertByName");
-            var request = new RestRequest(Method.POST);
-            //request2.AddParameter("application/json; charset=utf-8", json, ParameterType.RequestBody);
-            //client2.Timeout = int.MaxValue;
-            request.Timeout = int.MaxValue;
-            request.RequestFormat = DataFormat.Json;
-            request.AddJsonBody(new { Groups = (GroupNameTree)groups });
-            var response = client.Execute(request);
+            var root = new string[] { "Política", "Deputados" };
+            var body = new { NewGroups = (GroupNameTree)groups, RootPath = root };
+            var request = new RestRequest(Method.POST)
+            {
+                Timeout = int.MaxValue,
+                RequestFormat = DataFormat.Json
+            };
+
+            request.AddJsonBody(body);
+
+            var url = "http://localhost:58994/odata/v4/groups/BulkInsertByName";
+            var response = new RestClient(url)
+                .Execute(request);
 
             if (response.StatusCode != System.Net.HttpStatusCode.OK)
             {
@@ -289,7 +281,8 @@ namespace CSharp.Politica.DeputadosTask
             var container = new Default.Container(dataUri);
             container.Timeout = int.MaxValue;
 
-            var groupsDbDictionary = container.Groups.ToDictionaryTree(g => treatIndex(g.Name));
+            var deputadosGroupId = new Guid("25B8C2A1-3BC0-46D7-9222-5CBC4A466638");
+            var groupsDbDictionary = container.Groups.ToDictionaryTree(g => treatIndex(g.Name), deputadosGroupId);
             var exams2 = exams
                 .GroupBy(e => string.Join("/", e.Group.Key) + "/" + e.Date.ToString())
                 .Select(eg =>
