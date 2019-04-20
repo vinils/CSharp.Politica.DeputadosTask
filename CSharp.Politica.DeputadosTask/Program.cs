@@ -30,7 +30,7 @@ namespace CSharp.Politica.DeputadosTask
         }
     }
 
-    public class ExamDeputado
+    public class DataDeputado
     {
         public DateTime Date { get; set; }
         public DictionaryTree<string, string> Group { get; set; }
@@ -38,7 +38,7 @@ namespace CSharp.Politica.DeputadosTask
         public string Parcela { get; set; }
     }
 
-    class Program
+    public class Program
     {
         public static bool IsCnpj(string cnpj)
         {
@@ -136,20 +136,20 @@ namespace CSharp.Politica.DeputadosTask
                 .ToUpper();
         }
 
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
             Func<string, string> treatIndexLocal = treatIndex;
             var year = 2018;
             var month = 11;
 
-            GetData(year, month, out List<ExamDeputado> exams, out DictionaryTree<string, string> groups, treatIndexLocal);
+            GetData(out List<DataDeputado> datas, out DictionaryTree<string, string> groups, treatIndexLocal);
             //GroupBulkInsertByName(groups);
-            //ExamBulkInsert(exams, treatIndex);
+            //DataBulkInsert(datas, treatIndex);
         }
 
-        private static void GetData(int year, int month, out List<ExamDeputado> exams, out DictionaryTree<string, string> groups, Func<string, string> treatIndex)
+        private static void GetData(out List<DataDeputado> datas, out DictionaryTree<string, string> groups, Func<string, string> treatIndex)
         {
-            exams = new List<ExamDeputado>();
+            datas = new List<DataDeputado>();
             groups = new DictionaryTree<string, string>(s => treatIndex(s), "Verba indenizatória");
 
             var xmlDoc = new System.Xml.XmlDocument();
@@ -160,11 +160,13 @@ namespace CSharp.Politica.DeputadosTask
 
             foreach (System.Xml.XmlNode childrenNode in nodes)
             {
-                if (exams.Count%5000 == 0)
+                var datasCount = datas.Count;
+
+                if (datasCount > 0 && datasCount % 5000 == 0)
                 {
                     GroupBulkInsertByName(groups);
-                    ExamBulkInsert(exams, treatIndex);
-                    exams = new List<ExamDeputado>();
+                    DataBulkInsert(datas, treatIndex);
+                    datas = new List<DataDeputado>();
                     groups = new DictionaryTree<string, string>(s => treatIndex(s), "Verba indenizatória");
                 }
 
@@ -215,7 +217,7 @@ namespace CSharp.Politica.DeputadosTask
                     numeroDocumento,
                     isCancelado ? "Cancelado" : "Reembolsado");
 
-                var exam = new ExamDeputado()
+                var data = new DataDeputado()
                 {
                     Date = dataEmissao ?? new DateTime(ano, mes, 1),
                     Group = group,
@@ -223,7 +225,7 @@ namespace CSharp.Politica.DeputadosTask
                     Parcela = childrenNode.SelectSingleNode("parcela").InnerText
                 };
 
-                exams.Add(exam);
+                datas.Add(data);
 
                 ////Console.WriteLine(childrenNode.SelectSingleNode("razao_social").InnerText);
                 ////Console.WriteLine(childrenNode.SelectSingleNode("nr_processo").InnerText);
@@ -271,9 +273,9 @@ namespace CSharp.Politica.DeputadosTask
             }
         }
 
-        private static void ExamBulkInsert(List<ExamDeputado> exams, Func<string, string> treatIndex)
+        private static void DataBulkInsert(List<DataDeputado> datas, Func<string, string> treatIndex)
         {
-            if (!exams.Any())
+            if (!datas.Any())
                 return;
 
             var dataUriStr = "http://localhost:58994/odata/v4";
@@ -283,18 +285,18 @@ namespace CSharp.Politica.DeputadosTask
 
             var deputadosGroupId = new Guid("25B8C2A1-3BC0-46D7-9222-5CBC4A466638");
             var groupsDbDictionary = container.Groups.ToDictionaryTree(g => treatIndex(g.Name), deputadosGroupId);
-            var exams2 = exams
+            var datas2 = datas
                 .GroupBy(e => string.Join("/", e.Group.Key) + "/" + e.Date.ToString())
                 .Select(eg =>
-                    new Data.Models.ExamDecimal()
+                    new Data.Models.DataDecimal()
                     {
                         CollectionDate = eg.First().Date,
                         GroupId = groupsDbDictionary[eg.First().Group.Key].Data.Id,
                         DecimalValue = eg.Sum(e => e.Value)
                     })
-                .ToList<Data.Models.Exam>();
+                .ToList<Data.Models.Data>();
 
-            var bulkInsert = Default.ExtensionMethods.BulkInsert(container.Exams, exams2);
+            var bulkInsert = Default.ExtensionMethods.BulkInsert(container.Datas, datas2);
             bulkInsert.Execute();
         }
     }
